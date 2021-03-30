@@ -1,23 +1,24 @@
 const std = @import("std");
 
 const File = @import("File.zig");
+const T = @import("types.zig");
 
 const Process = @This();
 
-fds: ArrayList(fd_t),
+fds: std.ArrayList(T.Fd),
 
-pub fn file(self: *Process, fd: fd_t) !File {
-    _ = std.mem.indexOf(fd_t, fds.items, fd) orelse {
+pub fn file(self: *Process, fd: T.Fd) !*File {
+    _ = std.mem.indexOfScalar(T.Fd, self.fds.items, fd) orelse {
         return error.BadFileDescriptor;
     };
     return File.get(fd);
 }
 
-pub fn addFd(self: *Process, fd: fd_t) !void {
+pub fn addFd(self: *Process, fd: T.Fd) !void {
     try self.fds.append(fd);
 }
 
-pub fn removeFd(self: *Process, fd: fd_t) !void {
-    const idx = std.mem.indexOf(fd_t, fds.items, fd).?;
-    self.fds.swapRemove(fd);
+pub fn removeFd(self: *Process, fd: T.Fd) !void {
+    const idx = std.mem.indexOfScalar(T.Fd, self.fds.items, fd) orelse return error.BadFileDescriptor;
+    _ = self.fds.swapRemove(idx);
 }

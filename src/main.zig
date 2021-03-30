@@ -1,10 +1,13 @@
 const std = @import("std");
 const c = @import("c.zig");
 
-var xfb: *c_void = undefined;
-var rmode: *c.GXRModeObj = undefined;
+comptime {
+    if (!std.builtin.is_test) {
+        @export(main, .{ .name = "main" });
+    }
+}
 
-export fn main(argc: c_int, argv: [*]const [*:0]const u8) noreturn {
+pub fn main(argc: c_int, argv: [*]const [*:0]const u8) callconv(.C) noreturn {
     // Initialise the video system
     c.VIDEO_Init();
 
@@ -13,10 +16,10 @@ export fn main(argc: c_int, argv: [*]const [*:0]const u8) noreturn {
 
     // Obtain the preferred video mode from the system
     // This will correspond to the settings in the Wii menu
-    rmode = c.VIDEO_GetPreferredMode(null);
+    var rmode: *c.GXRModeObj = c.VIDEO_GetPreferredMode(null);
 
     // Allocate memory for the display in the uncached region
-    xfb = c.MEM_K0_TO_K1(c.SYS_AllocateFramebuffer(rmode)) orelse unreachable;
+    var xfb: *c_void = c.MEM_K0_TO_K1(c.SYS_AllocateFramebuffer(rmode)) orelse unreachable;
 
     // Initialise the console, required for printf
     c.console_init(xfb, 20, 20, rmode.fbWidth, rmode.xfbHeight, rmode.fbWidth * c.VI_DISPLAY_PIX_SZ);
@@ -59,4 +62,8 @@ export fn main(argc: c_int, argv: [*]const [*:0]const u8) noreturn {
         // Wait for the next frame
         c.VIDEO_WaitVSync();
     }
+}
+
+test {
+    _ = @import("syscall.zig");
 }
