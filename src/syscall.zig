@@ -91,18 +91,23 @@ const handlers = struct {
     }
 };
 
-fn invoke(process: *Process, code: usize, raw_args: [6]usize) error{IllegalSyscall}!isize {
-    const value = invokeRaw(process, code, raw_args) catch |err| switch (err) {
-        error.BadFileDescriptor => return -9,
-        error.TooManyFileDescriptors => return -24,
+const FatalError = error{
+    IllegalSyscall,
+};
 
-        // Fatal
+fn invoke(process: *Process, code: usize, raw_args: [6]usize) FatalError!isize {
+    const value = invokeRaw(process, code, raw_args) catch |err| switch (err) {
         error.IllegalSyscall => |e| return e,
+        else => |e| {
+            // TODO: change this once we can switch off error sets
+            const errno = T.Errno.from(e);
+            return -@as(isize, @enumToInt(errno));
+        },
     };
     return @bitCast(isize, value);
 }
 
-fn invokeRaw(process: *Process, code: usize, raw_args: [6]usize) !usize {
+fn invokeRaw(process: *Process, code: usize, raw_args: [6]usize) (FatalError || T.Errno.E)!usize {
     inline for (std.meta.declarations(impls)) |decl| {
         if (code == decode(decl.name)) {
             const func = @field(impls, decl.name);
@@ -168,12 +173,12 @@ const impls = struct {
     }
 
     pub fn @"003 read"(process: *Process, fd: T.Fd, buf: [*]u8, count: usize) !usize {
-        const file = try process.file(fd);
+        const file = process.file(fd) orelse return T.Errno.E.EBADF;
         return file.read(buf[0..count]);
     }
 
     pub fn @"004 write"(process: *Process, fd: T.Fd, buf: [*]u8, count: usize) !usize {
-        const file = try process.file(fd);
+        const file = process.file(fd) orelse return T.Errno.E.EBADF;
         return file.write(buf[0..count]);
     }
 
@@ -182,12 +187,16 @@ const impls = struct {
         errdefer file.close();
 
         const fd = file.getFd();
-        try process.addFd(fd);
+        process.addFd(fd) catch |err| switch (err) {
+            error.OutOfMemory => return T.Errno.E.EMFILE,
+        };
         return fd;
     }
 
     pub fn @"006 close"(process: *Process, fd: T.Fd) !usize {
-        try process.removeFd(fd);
+        process.removeFd(fd) catch |err| switch (err) {
+            error.BadFileDescriptor => return T.Errno.E.EBADF,
+        };
         return 0;
     }
 };

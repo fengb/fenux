@@ -9,17 +9,13 @@ fds: std.ArrayList(T.Fd),
 
 pub var active: ?*Process = null;
 
-pub fn file(self: *Process, fd: T.Fd) !*File {
-    _ = std.mem.indexOfScalar(T.Fd, self.fds.items, fd) orelse {
-        return error.BadFileDescriptor;
-    };
+pub fn file(self: *Process, fd: T.Fd) ?*File {
+    _ = std.mem.indexOfScalar(T.Fd, self.fds.items, fd) orelse return null;
     return File.get(fd);
 }
 
 pub fn addFd(self: *Process, fd: T.Fd) !void {
-    self.fds.append(fd) catch |err| switch (err) {
-        error.OutOfMemory => return error.TooManyFileDescriptors,
-    };
+    try self.fds.append(fd);
 }
 
 pub fn removeFd(self: *Process, fd: T.Fd) !void {
