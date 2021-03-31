@@ -36,21 +36,18 @@ const handlers = struct {
             ),
         };
 
-        if (invoke(Process.active.?, code, raw_args)) |success| {
+        if (invoke(Process.active.?, code, raw_args)) |value| {
+            const is_error = value > -4096 and value < 0;
             _ = asm volatile ("rfi"
                 : [ret] "={r3}" (-> usize)
-                : [success] "{r3}" (success),
-                  [fail] "{cr0}" (false)
+                : [value] "{r3}" (value),
+                  [err] "{cr0}" (is_error)
             );
+            unreachable;
         } else |err| {
-            const errno: i64 = getErrno(err);
-            _ = asm volatile ("rfi"
-                : [ret] "={r3}" (-> usize)
-                : [err] "{r3}" (-errno),
-                  [fail] "{cr0}" (true)
-            );
+            Process.active.?.signal(.ill);
+            unreachable;
         }
-        unreachable;
     }
 
     pub fn x86_64() callconv(.Naked) noreturn {
@@ -81,27 +78,31 @@ const handlers = struct {
             ),
         };
 
-        if (invoke(Process.active.?, code, raw_args)) |success| {
+        if (invoke(Process.active.?, code, raw_args)) |value| {
             _ = asm volatile ("sysret"
                 : [ret] "={rax}" (-> usize)
-                : [success] "{rax}" (success)
+                : [value] "{rax}" (value)
             );
+            unreachable;
         } else |err| {
-            const errno: i64 = getErrno(err);
-            _ = asm volatile ("sysret"
-                : [ret] "={rax}" (-> usize)
-                : [err] "{rax}" (-errno)
-            );
+            Process.active.?.signal(.ill);
+            unreachable;
         }
-        unreachable;
     }
 };
 
-fn getErrno(err: anytype) u12 {
-    return 1;
+fn invoke(process: *Process, code: usize, raw_args: [6]usize) error{IllegalSyscall}!isize {
+    const value = invokeRaw(process, code, raw_args) catch |err| switch (err) {
+        error.BadFileDescriptor => return -9,
+        error.TooManyFileDescriptors => return -24,
+
+        // Fatal
+        error.IllegalSyscall => |e| return e,
+    };
+    return @bitCast(isize, value);
 }
 
-fn invoke(process: *Process, code: usize, raw_args: [6]usize) !usize {
+fn invokeRaw(process: *Process, code: usize, raw_args: [6]usize) !usize {
     inline for (std.meta.declarations(impls)) |decl| {
         if (code == decode(decl.name)) {
             const func = @field(impls, decl.name);
@@ -111,7 +112,9 @@ fn invoke(process: *Process, code: usize, raw_args: [6]usize) !usize {
             if (args.len > 1) {
                 inline for (std.meta.fields(Args)[1..]) |field, i| {
                     const Int = std.meta.Int(.unsigned, @bitSizeOf(field.field_type));
-                    const raw = try std.math.cast(Int, raw_args[i]);
+                    const raw = std.math.cast(Int, raw_args[i]) catch |err| switch (err) {
+                        error.Overflow => return error.IllegalSyscall,
+                    };
                     args[i + 1] = switch (@typeInfo(field.field_type)) {
                         .Enum => @intToEnum(field.field_type, raw),
                         .Pointer => @intToPtr(field.field_type, raw),
@@ -132,7 +135,7 @@ fn invoke(process: *Process, code: usize, raw_args: [6]usize) !usize {
             };
         }
     }
-    return error.SyscallNotFound;
+    return error.IllegalSyscall;
 }
 
 test {
@@ -152,7 +155,7 @@ fn decode(comptime name: []const u8) u16 {
 }
 
 const impls = struct {
-    pub fn @"000 restart"() usize {
+    pub fn @"000 restart"(process: *Process) usize {
         unreachable;
     }
 
@@ -176,6 +179,8 @@ const impls = struct {
 
     pub fn @"005 open"(process: *Process, path: [*:0]const u8, flags: u32, perm: T.Mode) !T.Fd {
         const file = try File.open(std.mem.spanZ(path), flags, perm);
+        errdefer file.close();
+
         const fd = file.getFd();
         try process.addFd(fd);
         return fd;

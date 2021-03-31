@@ -32,14 +32,18 @@ pub fn open(path: []const u8, flags: u32, perm: T.Mode) !*File {
     return file;
 }
 
+fn deinit(file: *File) void {
+    @panic("TODO");
+}
+
 pub fn close(file: *File) void {
     const fd = file.getFd();
     switch (fd) {
         .stdin, .stdout, .stderr => return,
         else => {},
     }
-    file.refs -= 1;
-    if (file.refs == 0) {
+    file.ref_count -= 1;
+    if (file.ref_count == 0) {
         file.deinit();
         if (@enumToInt(fd) < @enumToInt(first_available)) {
             first_available = fd;

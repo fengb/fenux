@@ -17,10 +17,16 @@ pub fn file(self: *Process, fd: T.Fd) !*File {
 }
 
 pub fn addFd(self: *Process, fd: T.Fd) !void {
-    try self.fds.append(fd);
+    self.fds.append(fd) catch |err| switch (err) {
+        error.OutOfMemory => return error.TooManyFileDescriptors,
+    };
 }
 
 pub fn removeFd(self: *Process, fd: T.Fd) !void {
     const idx = std.mem.indexOfScalar(T.Fd, self.fds.items, fd) orelse return error.BadFileDescriptor;
     _ = self.fds.swapRemove(idx);
+}
+
+pub fn signal(self: *Process, sig: T.Signal) void {
+    @panic("FIXME");
 }
