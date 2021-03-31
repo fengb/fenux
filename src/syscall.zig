@@ -4,44 +4,101 @@ const File = @import("File.zig");
 const Process = @import("Process.zig");
 const T = @import("types.zig");
 
-pub fn handler() callconv(.Naked) noreturn {
-    const code = asm volatile (""
-        : [ret] "={r0}" (-> u32)
-    );
-    var raw_args: [6]u32 = undefined;
-    raw_args[0] = asm volatile (""
-        : [ret] "={r3}" (-> u32)
-    );
-    raw_args[1] = asm volatile (""
-        : [ret] "={r4}" (-> u32)
-    );
-    raw_args[2] = asm volatile (""
-        : [ret] "={r5}" (-> u32)
-    );
-    raw_args[3] = asm volatile (""
-        : [ret] "={r6}" (-> u32)
-    );
-    raw_args[4] = asm volatile (""
-        : [ret] "={r7}" (-> u32)
-    );
-    raw_args[5] = asm volatile (""
-        : [ret] "={r8}" (-> u32)
-    );
+pub const handler = switch (std.builtin.arch) {
+    .powerpc => handlers.powerpc,
+    .x86_64 => handlers.x86_64,
+    else => @compileError("handler '" ++ @tagName(std.builtin.arch) ++ "' not defined"),
+};
 
-    if (invoke(process, code, args)) |success| {
-        _ = asm volatile ("rfi"
-            : [ret] "={r3}" (-> usize)
-            : [success] "{r3}" (success),
-              [fail] "{cr0}" (false)
+const handlers = struct {
+    pub fn powerpc() callconv(.Naked) noreturn {
+        const code = asm volatile (""
+            : [ret] "={r0}" (-> u32)
         );
-    } else |err| {
-        _ = asm volatile ("rfi"
-            : [ret] "={r12}" (-> usize)
-            : [err] "{r3}" (err),
-              [fail] "{cr0}" (true)
-            : "r3"
-        );
+        var raw_args: [6]u32 = .{
+            asm volatile (""
+                : [ret] "={r3}" (-> u32)
+            ),
+            asm volatile (""
+                : [ret] "={r4}" (-> u32)
+            ),
+            asm volatile (""
+                : [ret] "={r5}" (-> u32)
+            ),
+            asm volatile (""
+                : [ret] "={r6}" (-> u32)
+            ),
+            asm volatile (""
+                : [ret] "={r7}" (-> u32)
+            ),
+            asm volatile (""
+                : [ret] "={r8}" (-> u32)
+            ),
+        };
+
+        if (invoke(Process.active.?, code, raw_args)) |success| {
+            _ = asm volatile ("rfi"
+                : [ret] "={r3}" (-> usize)
+                : [success] "{r3}" (success),
+                  [fail] "{cr0}" (false)
+            );
+        } else |err| {
+            const errno: i64 = getErrno(err);
+            _ = asm volatile ("rfi"
+                : [ret] "={r3}" (-> usize)
+                : [err] "{r3}" (-errno),
+                  [fail] "{cr0}" (true)
+            );
+        }
+        unreachable;
     }
+
+    pub fn x86_64() callconv(.Naked) noreturn {
+        const code = asm volatile (""
+            : [ret] "={rax}" (-> u64)
+        );
+        const ret_addr = asm volatile (""
+            : [ret] "={rcx}" (-> u64)
+        );
+        var raw_args: [6]u64 = .{
+            asm volatile (""
+                : [ret] "={rdi}" (-> u64)
+            ),
+            asm volatile (""
+                : [ret] "={rsi}" (-> u64)
+            ),
+            asm volatile (""
+                : [ret] "={rdx}" (-> u64)
+            ),
+            asm volatile (""
+                : [ret] "={r10}" (-> u64)
+            ),
+            asm volatile (""
+                : [ret] "={r8}" (-> u64)
+            ),
+            asm volatile (""
+                : [ret] "={r9}" (-> u64)
+            ),
+        };
+
+        if (invoke(Process.active.?, code, raw_args)) |success| {
+            _ = asm volatile ("sysret"
+                : [ret] "={rax}" (-> usize)
+                : [success] "{rax}" (success)
+            );
+        } else |err| {
+            const errno: i64 = getErrno(err);
+            _ = asm volatile ("sysret"
+                : [ret] "={rax}" (-> usize)
+                : [err] "{rax}" (-errno)
+            );
+        }
+        unreachable;
+    }
+};
+
+fn getErrno(err: anytype) u12 {
+    return 1;
 }
 
 fn invoke(process: *Process, code: usize, raw_args: [6]usize) !usize {
@@ -50,6 +107,7 @@ fn invoke(process: *Process, code: usize, raw_args: [6]usize) !usize {
             const func = @field(impls, decl.name);
             const Args = std.meta.ArgsTuple(@TypeOf(func));
             var args: Args = undefined;
+            args[0] = process;
             if (args.len > 1) {
                 inline for (std.meta.fields(Args)[1..]) |field, i| {
                     const Int = std.meta.Int(.unsigned, @bitSizeOf(field.field_type));
@@ -79,6 +137,7 @@ fn invoke(process: *Process, code: usize, raw_args: [6]usize) !usize {
 
 test {
     _ = invoke;
+    _ = handler;
 }
 
 fn decode(comptime name: []const u8) u16 {

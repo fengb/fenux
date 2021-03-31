@@ -7,6 +7,8 @@ const Process = @This();
 
 fds: std.ArrayList(T.Fd),
 
+pub var active: ?*Process = null;
+
 pub fn file(self: *Process, fd: T.Fd) !*File {
     _ = std.mem.indexOfScalar(T.Fd, self.fds.items, fd) orelse {
         return error.BadFileDescriptor;
