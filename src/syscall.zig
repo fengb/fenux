@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const File = @import("File.zig");
+const File = @import("file.zig").File;
 const Process = @import("Process.zig");
 const T = @import("types.zig");
 
@@ -172,31 +172,30 @@ const impls = struct {
         unreachable;
     }
 
-    pub fn @"003 read"(process: *Process, fd: T.Fd, buf: [*]u8, count: usize) !usize {
-        const file = process.file(fd) orelse return T.Errno.E.EBADF;
+    pub fn @"003 read"(process: *Process, file: File, buf: [*]u8, count: usize) !usize {
+        if (!process.files.contains(file)) return T.Errno.E.EBADF;
         return file.read(buf[0..count]);
     }
 
-    pub fn @"004 write"(process: *Process, fd: T.Fd, buf: [*]u8, count: usize) !usize {
-        const file = process.file(fd) orelse return T.Errno.E.EBADF;
+    pub fn @"004 write"(process: *Process, file: File, buf: [*]u8, count: usize) !usize {
+        if (!process.files.contains(file)) return T.Errno.E.EBADF;
         return file.write(buf[0..count]);
     }
 
-    pub fn @"005 open"(process: *Process, path: [*:0]const u8, flags: u32, perm: T.Mode) !T.Fd {
+    pub fn @"005 open"(process: *Process, path: [*:0]const u8, flags: u32, perm: T.Mode) !File {
         const file = try File.open(std.mem.spanZ(path), flags, perm);
         errdefer file.close();
 
-        const fd = file.getFd();
-        process.addFd(fd) catch |err| switch (err) {
+        process.files.putNoClobber(file, {}) catch |err| switch (err) {
             error.OutOfMemory => return T.Errno.E.EMFILE,
         };
-        return fd;
+        return file;
     }
 
-    pub fn @"006 close"(process: *Process, fd: T.Fd) !usize {
-        process.removeFd(fd) catch |err| switch (err) {
-            error.BadFileDescriptor => return T.Errno.E.EBADF,
-        };
+    pub fn @"006 close"(process: *Process, file: File) !usize {
+        if (process.files.remove(file) == null) {
+            return T.Errno.E.EBADF;
+        }
         return 0;
     }
 };
