@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const File = @import("file.zig").File;
+const Mode = @import("file.zig").Mode;
 const Process = @import("Process.zig");
 const T = @import("types.zig");
 
@@ -182,7 +183,7 @@ const impls = struct {
         return file.write(buf[0..count]);
     }
 
-    pub fn @"005 open"(process: *Process, path: [*:0]const u8, flags: u32, perm: T.Mode) !File {
+    pub fn @"005 open"(process: *Process, path: [*:0]const u8, flags: u32, perm: Mode) !File {
         const file = try File.open(std.mem.spanZ(path), flags, perm);
         errdefer file.close();
 

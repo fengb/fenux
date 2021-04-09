@@ -1,7 +1,5 @@
 const std = @import("std");
 
-pub const Mode = enum(u32) { _ };
-
 pub const Signal = enum {
     /// Hangup detected on controlling terminal or death of controlling process
     hup = 1,

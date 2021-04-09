@@ -28,7 +28,10 @@ pub fn build(b: *Builder) void {
 
     const wii_tests = b.addTest("src/main.zig");
     wii_tests.setBuildMode(mode);
-    wii_tests.setTarget(wii_target);
+    var wii_test_target = wii_target;
+    wii_test_target.os_tag = .linux;
+    wii_test_target.abi = .musleabi;
+    wii_tests.setTarget(wii_test_target);
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&host_tests.step);

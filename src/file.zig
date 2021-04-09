@@ -1,4 +1,4 @@
-const T = @import("types.zig");
+const std = @import("std");
 
 pub const File = enum(u32) {
     stdin = 0,
@@ -8,7 +8,7 @@ pub const File = enum(u32) {
 
     var first_available: File = @intToEnum(File, 3);
 
-    pub fn open(path: []const u8, flags: u32, perm: T.Mode) !File {
+    pub fn open(path: []const u8, flags: u32, perm: Mode) !File {
         var scan = @enumToInt(first_available);
         while (Data.all[scan].ref_count != 0) : (scan += 1) {}
 
@@ -52,6 +52,101 @@ pub const File = enum(u32) {
         return &Data.all[@enumToInt(file)];
     }
 };
+
+pub const Mode = EndianOrdered(packed struct {
+    other_execute: bool,
+    other_write: bool,
+    other_read: bool,
+
+    group_execute: bool,
+    group_write: bool,
+    group_read: bool,
+
+    owner_execute: bool,
+    owner_write: bool,
+    owner_read: bool,
+
+    restricted_delete: bool,
+    set_gid: bool,
+    set_uid: bool,
+
+    // TODO: make this type Format, compiler currently crashes with "buf_read_value_bytes enum packed"
+    format: u4,
+
+    _pad: u16 = 0,
+});
+
+pub const Format = enum(u4) {
+    fifo = 0o1,
+    char = 0o2,
+    dir = 0o4,
+    block = 0o6,
+    reg = 0o10,
+    symlink = 0o12,
+    socket = 0o14,
+
+    pub fn raw(self: Format) u4 {
+        return @enumToInt(self);
+    }
+};
+
+test "Mode" {
+    std.testing.expectEqual(@as(usize, 4), @sizeOf(Mode));
+    std.testing.expectEqual(@as(usize, 32), @bitSizeOf(Mode));
+
+    const S_IFMT: u32 = 0o170000;
+
+    const S_IFDIR: u32 = 0o040000;
+    const S_IFCHR: u32 = 0o020000;
+    const S_IFBLK: u32 = 0o060000;
+    const S_IFREG: u32 = 0o100000;
+    const S_IFIFO: u32 = 0o010000;
+    const S_IFLNK: u32 = 0o120000;
+    const S_IFSOCK: u32 = 0o140000;
+
+    var mode = @bitCast(Mode, @as(u32, 0));
+    mode.format = Format.fifo.raw();
+    std.testing.expectEqual(S_IFIFO, S_IFMT & @bitCast(u32, mode));
+    mode.format = Format.block.raw();
+    std.testing.expectEqual(S_IFBLK, S_IFMT & @bitCast(u32, mode));
+
+    const S_ISUID: u32 = 0o4000;
+    const S_ISGID: u32 = 0o2000;
+    const S_ISVTX: u32 = 0o1000;
+
+    std.testing.expectEqual(@as(u32, 0), S_ISVTX & @bitCast(u32, mode));
+    mode.restricted_delete = true;
+    std.testing.expectEqual(S_ISVTX, S_ISVTX & @bitCast(u32, mode));
+
+    std.testing.expectEqual(@as(u32, 0), S_ISUID & @bitCast(u32, mode));
+    mode.set_uid = true;
+    std.testing.expectEqual(S_ISUID, S_ISUID & @bitCast(u32, mode));
+
+    const S_IRUSR: u32 = 0o400;
+    const S_IWUSR: u32 = 0o200;
+    const S_IXUSR: u32 = 0o100;
+    const S_IRGRP: u32 = 0o040;
+    const S_IWGRP: u32 = 0o020;
+    const S_IXGRP: u32 = 0o010;
+    const S_IROTH: u32 = 0o004;
+    const S_IWOTH: u32 = 0o002;
+    const S_IXOTH: u32 = 0o001;
+}
+
+fn EndianOrdered(comptime T: type) type {
+    if (std.builtin.endian == .Little) {
+        return T;
+    } else {
+        var info = @typeInfo(T);
+        const len = info.Struct.fields.len;
+        var reversed_fields: [len]std.builtin.TypeInfo.StructField = undefined;
+        for (info.Struct.fields) |field, i| {
+            reversed_fields[len - 1 - i] = field;
+        }
+        info.Struct.fields = &reversed_fields;
+        return @Type(info);
+    }
+}
 
 const Data = struct {
     ref_count: u16 = 0,
