@@ -37,18 +37,24 @@ const handlers = struct {
             ),
         };
 
-        if (invoke(Process.active.?, code, raw_args)) |value| {
-            const is_error = value > -4096 and value < 0;
-            _ = asm volatile ("rfi"
-                : [ret] "={r3}" (-> usize)
-                : [value] "{r3}" (value),
-                  [err] "{cr0}" (is_error)
-            );
-            unreachable;
-        } else |err| {
-            Process.active.?.signal(.ill);
-            unreachable;
-        }
+        var errored = false;
+
+        const value = invoke(Process.active.?, code, raw_args) catch |err| switch (err) {
+            error.IllegalSyscall => {
+                Process.active.?.signal(.ill);
+                unreachable;
+            },
+            else => |e| blk: {
+                errored = true;
+                break :blk @enumToInt(T.Errno.from(e));
+            },
+        };
+        _ = asm volatile ("rfi"
+            : [ret] "={r3}" (-> usize)
+            : [value] "{r3}" (value),
+              [err] "{cr0}" (errored)
+        );
+        unreachable;
     }
 
     pub fn x86_64() callconv(.Naked) noreturn {
@@ -79,16 +85,18 @@ const handlers = struct {
             ),
         };
 
-        if (invoke(Process.active.?, code, raw_args)) |value| {
-            _ = asm volatile ("sysret"
-                : [ret] "={rax}" (-> usize)
-                : [value] "{rax}" (value)
-            );
-            unreachable;
-        } else |err| {
-            Process.active.?.signal(.ill);
-            unreachable;
-        }
+        const value = invoke(Process.active.?, code, raw_args) catch |err| switch (err) {
+            error.IllegalSyscall => {
+                Process.active.?.signal(.ill);
+                unreachable;
+            },
+            else => |e| -%@as(u32, @enumToInt(T.Errno.from(e))),
+        };
+        _ = asm volatile ("sysret"
+            : [ret] "={rax}" (-> usize)
+            : [value] "{rax}" (value)
+        );
+        unreachable;
     }
 };
 
@@ -96,19 +104,7 @@ const FatalError = error{
     IllegalSyscall,
 };
 
-fn invoke(process: *Process, code: usize, raw_args: [6]usize) FatalError!isize {
-    const value = invokeRaw(process, code, raw_args) catch |err| switch (err) {
-        error.IllegalSyscall => |e| return e,
-        else => |e| {
-            // TODO: change this once we can switch off error sets
-            const errno = T.Errno.from(e);
-            return -@as(isize, @enumToInt(errno));
-        },
-    };
-    return @bitCast(isize, value);
-}
-
-fn invokeRaw(process: *Process, code: usize, raw_args: [6]usize) (FatalError || T.Errno.E)!usize {
+fn invoke(process: *Process, code: usize, raw_args: [6]usize) (FatalError || T.Errno.E)!usize {
     inline for (std.meta.declarations(impls)) |decl| {
         if (code == decode(decl.name)) {
             const func = @field(impls, decl.name);
