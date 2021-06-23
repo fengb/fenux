@@ -1,11 +1,10 @@
 const std = @import("std");
 
-const File = @import("file.zig").File;
+const File = @import("File.zig");
 const T = @import("types.zig");
 
 const Process = @This();
-
-files: std.AutoHashMap(File, void),
+fids: std.AutoHashMap(File.Id, void),
 
 pub var active: ?*Process = null;
 
