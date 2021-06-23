@@ -38,9 +38,9 @@ const handlers = struct {
 
         var errored = false;
 
-        const value = invoke(Process.active.?, code, raw_args) catch |err| switch (err) {
+        const value = invoke(Process.active().?, code, raw_args) catch |err| switch (err) {
             error.IllegalSyscall => {
-                Process.active.?.signal(.ill);
+                Process.active().?.signal(.ill);
                 unreachable;
             },
             else => |e| blk: {
@@ -84,9 +84,9 @@ const handlers = struct {
             ),
         };
 
-        const value = invoke(Process.active.?, code, raw_args) catch |err| switch (err) {
+        const value = invoke(Process.active().?, code, raw_args) catch |err| switch (err) {
             error.IllegalSyscall => {
-                Process.active.?.signal(.ill);
+                Process.active().?.signal(.ill);
                 unreachable;
             },
             else => |e| -%@as(u32, @enumToInt(T.Errno.from(e))),

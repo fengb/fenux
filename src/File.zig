@@ -4,13 +4,12 @@ const File = @This();
 id: Id = undefined,
 ref_count: u16 = 0,
 
-var all = [_]File{.{ .ref_count = 0xAAAA }} ** 3 ++
-    [_]File{.{ .ref_count = 0 }} ** (65536 - 3);
+var all: std.AutoHashMap(File.Id, File) = undefined;
 var first_available: File.Id = @intToEnum(File.Id, 3);
 
 pub fn open(path: []const u8, flags: u32, perm: Mode) !*File {
     var scan = @enumToInt(first_available);
-    while (File.all[scan].ref_count != 0) : (scan += 1) {}
+    while (!all.contains(@intToEnum(Id, scan))) : (scan += 1) {}
 
     const fid = @intToEnum(File.Id, scan);
     if (true) {
@@ -56,7 +55,7 @@ pub const Id = enum(u32) {
     _,
 
     pub fn file(fid: Id) *File {
-        return &File.all[@enumToInt(fid)];
+        return &all.getEntry(fid).?.value;
     }
 };
 
