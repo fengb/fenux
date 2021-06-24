@@ -22,18 +22,31 @@ pub fn open(path: []const u8, flags: Flags, perm: Mode) !*File {
     return file;
 }
 
-pub fn close(file: *File) void {
+pub fn retain(file: *File) void {
+    switch (file.id) {
+        .stdin, .stdout, .stderr => return,
+        else => {},
+    }
+    file.ref_count += 1;
+}
+
+pub fn release(file: *File) void {
     switch (file.id) {
         .stdin, .stdout, .stderr => return,
         else => {},
     }
     file.ref_count -= 1;
     if (file.ref_count == 0) {
-        file.deinit();
-        if (@enumToInt(file.id) < @enumToInt(first_available)) {
-            first_available = file.id;
-        }
+        file.close();
     }
+}
+
+fn close(file: *File) void {
+    std.debug.assert(file.ref_count == 0);
+    if (@enumToInt(file.id) < @enumToInt(first_available)) {
+        first_available = file.id;
+    }
+    @panic("TODO");
 }
 
 pub fn read(file: File, buf: []u8) !usize {
@@ -42,10 +55,6 @@ pub fn read(file: File, buf: []u8) !usize {
 
 pub fn write(file: File, bytes: []const u8) !usize {
     return 0;
-}
-
-fn deinit(file: File) void {
-    @panic("TODO");
 }
 
 pub const Id = enum(u32) {

@@ -6,6 +6,7 @@ const T = @import("types.zig");
 
 const Process = @This();
 id: Id,
+parent_id: Id,
 memory: Memory,
 fids: std.AutoHashMap(File.Id, void),
 status: enum { active, asleep, defunct },
@@ -19,11 +20,37 @@ pub fn active() ?*Process {
     }
 }
 
-pub fn signal(self: *Process, sig: T.Signal) void {
-    @panic("FIXME");
+pub fn fork(self: *Process) !*Process {
+    const fids = try self.fids.clone();
+
+    {
+        var iter = fids.iterator();
+        while (iter.next()) |entry| {
+            entry.key.file().retain();
+        }
+    }
+    errdefer {
+        var iter = fids.iterator();
+        while (iter.next()) |entry| {
+            entry.key.file().release();
+        }
+    }
+
+    const result = try scheduler.createProcess();
+    result.parent_id = self.id;
+    result.memory = self.memory;
+    result.status = self.status;
+
+    result.fids = fids;
+
+    return result;
 }
 
-const Id = enum(u16) {
+pub fn signal(self: *Process, sig: T.Signal) void {
+    @panic("TODO");
+}
+
+pub const Id = enum(u16) {
     _,
 
     fn process(pid: Id) *Process {
@@ -34,8 +61,13 @@ const Id = enum(u16) {
 const Scheduler = struct {
     pending: std.fifo.LinearFifo(Id, .Dynamic),
     all: std.AutoHashMap(Id, Process),
+    first_available: Id,
 
-    pub fn rotate(scheduler: *Scheduler) void {
+    pub fn createProcess(self: *Scheduler) !*Process {
+        unreachable;
+    }
+
+    pub fn rotate(self: *Scheduler) void {
         const item = scheduler.readItem();
         schedule.writeItem(item) catch unreachable;
     }

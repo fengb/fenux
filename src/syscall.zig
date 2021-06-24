@@ -171,8 +171,11 @@ const impls = struct {
         unreachable;
     }
 
-    pub fn @"002 fork"(process: *Process) usize {
-        unreachable;
+    pub fn @"002 fork"(process: *Process) !Process.Id {
+        const forked = process.fork() catch |err| switch (err) {
+            error.OutOfMemory => return T.Errno.E.ENOMEM,
+        };
+        return forked.id;
     }
 
     pub fn @"003 read"(process: *Process, fid: File.Id, buf: P(u8), count: usize) !usize {
@@ -191,7 +194,7 @@ const impls = struct {
             flags,
             perm,
         );
-        errdefer file.close();
+        errdefer file.release();
 
         process.fids.putNoClobber(file.id, {}) catch |err| switch (err) {
             error.OutOfMemory => return T.Errno.E.EMFILE,
@@ -203,7 +206,7 @@ const impls = struct {
         if (process.fids.remove(fid) == null) {
             return T.Errno.E.EBADF;
         }
-        fid.file().close();
+        fid.file().release();
         return 0;
     }
 };
