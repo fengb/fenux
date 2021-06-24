@@ -1,10 +1,12 @@
 const std = @import("std");
 
 const File = @import("File.zig");
+const Memory = @import("Memory.zig");
 const T = @import("types.zig");
 
 const Process = @This();
 id: Id,
+memory: Memory,
 fids: std.AutoHashMap(File.Id, void),
 status: enum { active, asleep, defunct },
 

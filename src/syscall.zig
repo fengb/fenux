@@ -2,6 +2,7 @@ const std = @import("std");
 
 const File = @import("File.zig");
 const Process = @import("Process.zig");
+const P = @import("Memory.zig").P;
 const T = @import("types.zig");
 
 pub const handler = switch (std.builtin.arch) {
@@ -174,18 +175,22 @@ const impls = struct {
         unreachable;
     }
 
-    pub fn @"003 read"(process: *Process, fid: File.Id, buf: [*]u8, count: usize) !usize {
+    pub fn @"003 read"(process: *Process, fid: File.Id, buf: P(u8), count: usize) !usize {
         if (!process.fids.contains(fid)) return T.Errno.E.EBADF;
-        return fid.file().read(buf[0..count]);
+        return fid.file().read(try process.memory.getMany(buf, count));
     }
 
-    pub fn @"004 write"(process: *Process, fid: File.Id, buf: [*]u8, count: usize) !usize {
+    pub fn @"004 write"(process: *Process, fid: File.Id, buf: P(u8), count: usize) !usize {
         if (!process.fids.contains(fid)) return T.Errno.E.EBADF;
-        return fid.file().write(buf[0..count]);
+        return fid.file().write(try process.memory.getMany(buf, count));
     }
 
-    pub fn @"005 open"(process: *Process, path: [*:0]const u8, flags: u32, perm: File.Mode) !File.Id {
-        const file = try File.open(std.mem.spanZ(path), flags, perm);
+    pub fn @"005 open"(process: *Process, path: P(u8), flags: u32, perm: File.Mode) !File.Id {
+        const file = try File.open(
+            try process.memory.getManyZ(path),
+            flags,
+            perm,
+        );
         errdefer file.close();
 
         process.fids.putNoClobber(file.id, {}) catch |err| switch (err) {
