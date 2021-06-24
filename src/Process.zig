@@ -2,6 +2,7 @@ const std = @import("std");
 
 const File = @import("File.zig");
 const Memory = @import("Memory.zig");
+const Thread = @import("Thread.zig");
 const T = @import("types.zig");
 const util = @import("util.zig");
 
@@ -9,21 +10,17 @@ const Process = @This();
 id: Id,
 parent_id: Id,
 memory: Memory,
+tids: std.AutoHashMap(Thread.Id, void),
 fids: std.AutoHashMap(File.Id, void),
-status: enum { active, asleep, defunct },
+status: enum { active, defunct },
 
-pub var scheduler: Scheduler = undefined;
-pub fn active() ?*Process {
-    if (scheduler.pending.count == 0) {
-        return null;
-    } else {
-        return scheduler.pending.peekItem(0).process();
-    }
-}
+var all: std.AutoHashMap(Id, Process) = undefined;
+var incr: util.AutoIncr(Id, 2) = .{};
 
-pub fn fork(self: *Process) !*Process {
-    const fids = try self.fids.clone();
+pub fn fork(thread: *Thread) !*Process {
+    const parent = thread.pid.process();
 
+    var fids = try parent.fids.clone();
     {
         var iter = fids.iterator();
         while (iter.next()) |entry| {
@@ -35,15 +32,26 @@ pub fn fork(self: *Process) !*Process {
         while (iter.next()) |entry| {
             entry.key.file().release();
         }
+        fids.deinit();
     }
 
-    return try scheduler.createProcess(.{
-        .id = undefined,
-        .parent_id = self.id,
-        .memory = self.memory,
-        .status = self.status,
+    const pid = incr.next(all);
+    try all.putNoClobber(pid, .{
+        .id = pid,
+        .parent_id = parent.id,
+        .memory = parent.memory,
+        .tids = undefined,
         .fids = fids,
+        .status = .active,
     });
+    errdefer _ = all.remove(pid);
+
+    const result = pid.process();
+
+    const tid = try Thread.scheduler.spawn(pid);
+    try result.tids.putNoClobber(tid, {});
+
+    return result;
 }
 
 pub fn signal(self: *Process, sig: T.Signal) void {
@@ -53,31 +61,7 @@ pub fn signal(self: *Process, sig: T.Signal) void {
 pub const Id = enum(u16) {
     _,
 
-    fn process(pid: Id) *Process {
-        return &scheduler.all.getEntry(pid).?.value;
-    }
-};
-
-const Scheduler = struct {
-    pending: std.fifo.LinearFifo(Id, .Dynamic),
-    all: std.AutoHashMap(Id, Process),
-    incr: util.AutoIncr(Id, 2),
-
-    pub fn createProcess(self: *Scheduler, data: Process) !*Process {
-        const pid = self.incr.next(self.all);
-        var copy = data;
-        copy.id = pid;
-        try self.all.putNoClobber(pid, data);
-
-        if (data.status == .active) {
-            try self.pending.writeItem(pid);
-        }
-        return pid.process();
-    }
-
-    pub fn rotate(self: *Scheduler) void {
-        if (scheduler.readItem()) |item| {
-            schedule.writeItemAssumeCapacity(item);
-        }
+    pub fn process(pid: Id) *Process {
+        return &all.getEntry(pid).?.value;
     }
 };

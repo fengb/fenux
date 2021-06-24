@@ -2,6 +2,7 @@ const std = @import("std");
 
 const File = @import("File.zig");
 const Process = @import("Process.zig");
+const Thread = @import("Thread.zig");
 const P = @import("Memory.zig").P;
 const T = @import("types.zig");
 
@@ -39,9 +40,10 @@ const handlers = struct {
 
         var errored = false;
 
-        const value = invoke(Process.active().?, code, raw_args) catch |err| switch (err) {
+        const thread = Thread.active().?;
+        const value = invoke(thread, code, raw_args) catch |err| switch (err) {
             error.IllegalSyscall => {
-                Process.active().?.signal(.ill);
+                thread.pid.process().signal(.ill);
                 unreachable;
             },
             else => |e| blk: {
@@ -85,9 +87,10 @@ const handlers = struct {
             ),
         };
 
-        const value = invoke(Process.active().?, code, raw_args) catch |err| switch (err) {
+        const thread = Thread.active().?;
+        const value = invoke(thread, code, raw_args) catch |err| switch (err) {
             error.IllegalSyscall => {
-                Process.active().?.signal(.ill);
+                thread.pid.process().signal(.ill);
                 unreachable;
             },
             else => |e| -%@as(u32, @enumToInt(T.Errno.from(e))),
@@ -104,13 +107,13 @@ const FatalError = error{
     IllegalSyscall,
 };
 
-fn invoke(process: *Process, code: usize, raw_args: [6]usize) (FatalError || T.Errno.E)!usize {
+fn invoke(thread: *Thread, code: usize, raw_args: [6]usize) (FatalError || T.Errno.E)!usize {
     inline for (std.meta.declarations(impls)) |decl| {
         if (code == comptime decode(decl.name)) {
             const func = @field(impls, decl.name);
             const Args = std.meta.ArgsTuple(@TypeOf(func));
             var args: Args = undefined;
-            args[0] = process;
+            args[0] = thread;
             if (args.len > 1) {
                 inline for (std.meta.fields(Args)[1..]) |field, i| {
                     const Int = std.meta.Int(.unsigned, @bitSizeOf(field.field_type));
@@ -163,32 +166,35 @@ test "decode" {
 }
 
 const impls = struct {
-    pub fn @"000 restart"(process: *Process) usize {
+    pub fn @"000 restart"(thread: *Thread) usize {
         unreachable;
     }
 
-    pub fn @"001 exit"(process: *Process, arg: usize) usize {
+    pub fn @"001 exit"(thread: *Thread, arg: usize) usize {
         unreachable;
     }
 
-    pub fn @"002 fork"(process: *Process) !Process.Id {
-        const forked = process.fork() catch |err| switch (err) {
+    pub fn @"002 fork"(thread: *Thread) !Process.Id {
+        const forked = Process.fork(thread) catch |err| switch (err) {
             error.OutOfMemory => return T.Errno.E.ENOMEM,
         };
         return forked.id;
     }
 
-    pub fn @"003 read"(process: *Process, fid: File.Id, buf: P(u8), count: usize) !usize {
+    pub fn @"003 read"(thread: *Thread, fid: File.Id, buf: P(u8), count: usize) !usize {
+        const process = thread.pid.process();
         if (!process.fids.contains(fid)) return T.Errno.E.EBADF;
         return fid.file().read(try process.memory.getMany(buf, count));
     }
 
-    pub fn @"004 write"(process: *Process, fid: File.Id, buf: P(u8), count: usize) !usize {
+    pub fn @"004 write"(thread: *Thread, fid: File.Id, buf: P(u8), count: usize) !usize {
+        const process = thread.pid.process();
         if (!process.fids.contains(fid)) return T.Errno.E.EBADF;
         return fid.file().write(try process.memory.getMany(buf, count));
     }
 
-    pub fn @"005 open"(process: *Process, path: P(u8), flags: File.Flags, perm: File.Mode) !File.Id {
+    pub fn @"005 open"(thread: *Thread, path: P(u8), flags: File.Flags, perm: File.Mode) !File.Id {
+        const process = thread.pid.process();
         const file = try File.open(
             try process.memory.getManyZ(path),
             flags,
@@ -202,7 +208,8 @@ const impls = struct {
         return file.id;
     }
 
-    pub fn @"006 close"(process: *Process, fid: File.Id) !usize {
+    pub fn @"006 close"(thread: *Thread, fid: File.Id) !usize {
+        const process = thread.pid.process();
         if (process.fids.remove(fid) == null) {
             return T.Errno.E.EBADF;
         }
