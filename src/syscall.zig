@@ -105,7 +105,7 @@ const FatalError = error{
 
 fn invoke(process: *Process, code: usize, raw_args: [6]usize) (FatalError || T.Errno.E)!usize {
     inline for (std.meta.declarations(impls)) |decl| {
-        if (code == decode(decl.name)) {
+        if (code == comptime decode(decl.name)) {
             const func = @field(impls, decl.name);
             const Args = std.meta.ArgsTuple(@TypeOf(func));
             var args: Args = undefined;
@@ -144,7 +144,7 @@ test {
     _ = handler;
 }
 
-fn decode(comptime name: []const u8) u16 {
+fn decode(comptime name: []const u8) comptime_int {
     if (name[0] < '0' or name[0] > '9' or
         name[1] < '0' or name[1] > '9' or
         name[2] < '0' or name[2] > '9' or
@@ -152,7 +152,13 @@ fn decode(comptime name: []const u8) u16 {
     {
         @compileError("fn @\"" ++ name ++ "\" must start with '000 '");
     }
-    return 100 * (name[0] - '0') + 100 * (name[1] - '0') * 10 + (name[2] - '0');
+    return @as(u16, 100) * (name[0] - '0') + @as(u16, 10) * (name[1] - '0') + (name[2] - '0');
+}
+
+test "decode" {
+    std.testing.expectEqual(1, decode("001 "));
+    std.testing.expectEqual(69, decode("069 "));
+    std.testing.expectEqual(420, decode("420 "));
 }
 
 const impls = struct {
@@ -192,6 +198,7 @@ const impls = struct {
         if (process.fids.remove(fid) == null) {
             return T.Errno.E.EBADF;
         }
+        fid.file().close();
         return 0;
     }
 };
