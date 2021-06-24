@@ -7,7 +7,7 @@ ref_count: u16 = 0,
 var all: std.AutoHashMap(File.Id, File) = undefined;
 var first_available: File.Id = @intToEnum(File.Id, 3);
 
-pub fn open(path: []const u8, flags: u32, perm: Mode) !*File {
+pub fn open(path: []const u8, flags: Flags, perm: Mode) !*File {
     var scan = @enumToInt(first_available);
     while (!all.contains(@intToEnum(Id, scan))) : (scan += 1) {}
 
@@ -59,6 +59,53 @@ pub const Id = enum(u32) {
     }
 };
 
+pub const Flags = EndianOrdered(packed struct {
+    access: u3,
+    _pad1: u3,
+
+    creat: bool,
+    excl: bool,
+    noctty: bool,
+
+    trunc: bool,
+    append: bool,
+    nonblock: bool,
+
+    dsync: bool,
+    @"async": bool,
+    directory: bool,
+
+    nofollow: bool,
+    largefile: bool,
+    direct: bool,
+
+    noatime: bool,
+    cloexec: bool,
+    sync: bool, // sync + dsync == O_SYNC
+
+    path: bool,
+    tmpfile: bool, // tmpfile + directory == O_TMPFILE
+    _pad2: u1,
+
+    _pad3: u8,
+});
+
+pub const Access = enum(u2) {
+    read = 0o0,
+    write = 0o1,
+    read_write = 0o2,
+    _,
+
+    pub fn raw(self: Format) u4 {
+        return @enumToInt(self);
+    }
+};
+
+test "Flags" {
+    std.testing.expectEqual(@as(usize, 4), @sizeOf(Flags));
+    std.testing.expectEqual(@as(usize, 32), @bitSizeOf(Flags));
+}
+
 pub const Mode = EndianOrdered(packed struct {
     other_execute: bool,
     other_write: bool,
@@ -90,6 +137,7 @@ pub const Format = enum(u4) {
     reg = 0o10,
     symlink = 0o12,
     socket = 0o14,
+    _,
 
     pub fn raw(self: Format) u4 {
         return @enumToInt(self);

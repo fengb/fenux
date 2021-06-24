@@ -185,7 +185,7 @@ const impls = struct {
         return fid.file().write(try process.memory.getMany(buf, count));
     }
 
-    pub fn @"005 open"(process: *Process, path: P(u8), flags: u32, perm: File.Mode) !File.Id {
+    pub fn @"005 open"(process: *Process, path: P(u8), flags: File.Flags, perm: File.Mode) !File.Id {
         const file = try File.open(
             try process.memory.getManyZ(path),
             flags,
