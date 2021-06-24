@@ -1,17 +1,16 @@
 const std = @import("std");
 
+const util = @import("util.zig");
+
 const File = @This();
-id: Id = undefined,
-ref_count: u16 = 0,
+id: Id,
+ref_count: u16,
 
 var all: std.AutoHashMap(Id, File) = undefined;
-var first_available: Id = @intToEnum(Id, 3);
+var incr: util.AutoIncr(Id, 3) = .{};
 
 pub fn open(path: []const u8, flags: Flags, perm: Mode) !*File {
-    var scan = @enumToInt(first_available);
-    while (!all.contains(@intToEnum(Id, scan))) : (scan += 1) {}
-
-    const fid = @intToEnum(Id, scan);
+    const fid = incr.next(all);
     if (true) {
         unreachable;
     }
@@ -48,8 +47,8 @@ fn close(file: *File) void {
 
     // I don't think this matters
     if (_keep_descriptors_low) {
-        if (@enumToInt(file.id) < @enumToInt(first_available)) {
-            first_available = file.id;
+        if (@enumToInt(file.id) < @enumToInt(incr.prev)) {
+            incr.reset(file.id);
         }
     }
     @panic("TODO");

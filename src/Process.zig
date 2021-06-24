@@ -3,6 +3,7 @@ const std = @import("std");
 const File = @import("File.zig");
 const Memory = @import("Memory.zig");
 const T = @import("types.zig");
+const util = @import("util.zig");
 
 const Process = @This();
 id: Id,
@@ -60,14 +61,10 @@ pub const Id = enum(u16) {
 const Scheduler = struct {
     pending: std.fifo.LinearFifo(Id, .Dynamic),
     all: std.AutoHashMap(Id, Process),
-    first_available: Id,
+    incr: util.AutoIncr(Id, 2),
 
     pub fn createProcess(self: *Scheduler, data: Process) !*Process {
-        var scan = @enumToInt(self.first_available);
-        while (!self.all.contains(@intToEnum(Id, scan))) : (scan += 1) {}
-
-        const pid = @intToEnum(Id, scan);
-        self.first_available = pid;
+        const pid = self.incr.next(self.all);
         var copy = data;
         copy.id = pid;
         try self.all.putNoClobber(pid, data);
