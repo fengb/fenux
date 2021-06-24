@@ -4,22 +4,23 @@ const File = @This();
 id: Id = undefined,
 ref_count: u16 = 0,
 
-var all: std.AutoHashMap(File.Id, File) = undefined;
-var first_available: File.Id = @intToEnum(File.Id, 3);
+var all: std.AutoHashMap(Id, File) = undefined;
+var first_available: Id = @intToEnum(Id, 3);
 
 pub fn open(path: []const u8, flags: Flags, perm: Mode) !*File {
     var scan = @enumToInt(first_available);
     while (!all.contains(@intToEnum(Id, scan))) : (scan += 1) {}
 
-    const fid = @intToEnum(File.Id, scan);
+    const fid = @intToEnum(Id, scan);
     if (true) {
         unreachable;
     }
-    const file = fid.file();
-    file.id = fid;
-    file.ref_count = 1;
     first_available = fid;
-    return file;
+    try self.all.putNoClobber(fid, .{
+        .id = fid,
+        .ref_count = 1,
+    });
+    return fid.file();
 }
 
 pub fn retain(file: *File) void {
@@ -41,10 +42,15 @@ pub fn release(file: *File) void {
     }
 }
 
+const _keep_descriptors_low = false;
 fn close(file: *File) void {
     std.debug.assert(file.ref_count == 0);
-    if (@enumToInt(file.id) < @enumToInt(first_available)) {
-        first_available = file.id;
+
+    // I don't think this matters
+    if (_keep_descriptors_low) {
+        if (@enumToInt(file.id) < @enumToInt(first_available)) {
+            first_available = file.id;
+        }
     }
     @panic("TODO");
 }

@@ -36,14 +36,13 @@ pub fn fork(self: *Process) !*Process {
         }
     }
 
-    const result = try scheduler.createProcess();
-    result.parent_id = self.id;
-    result.memory = self.memory;
-    result.status = self.status;
-
-    result.fids = fids;
-
-    return result;
+    return try scheduler.createProcess(.{
+        .id = undefined,
+        .parent_id = self.id,
+        .memory = self.memory,
+        .status = self.status,
+        .fids = fids,
+    });
 }
 
 pub fn signal(self: *Process, sig: T.Signal) void {
@@ -63,12 +62,25 @@ const Scheduler = struct {
     all: std.AutoHashMap(Id, Process),
     first_available: Id,
 
-    pub fn createProcess(self: *Scheduler) !*Process {
-        unreachable;
+    pub fn createProcess(self: *Scheduler, data: Process) !*Process {
+        var scan = @enumToInt(self.first_available);
+        while (!self.all.contains(@intToEnum(Id, scan))) : (scan += 1) {}
+
+        const pid = @intToEnum(Id, scan);
+        self.first_available = pid;
+        var copy = data;
+        copy.id = pid;
+        try self.all.putNoClobber(pid, data);
+
+        if (data.status == .active) {
+            try self.pending.writeItem(pid);
+        }
+        return pid.process();
     }
 
     pub fn rotate(self: *Scheduler) void {
-        const item = scheduler.readItem();
-        schedule.writeItem(item) catch unreachable;
+        if (scheduler.readItem()) |item| {
+            schedule.writeItemAssumeCapacity(item);
+        }
     }
 };
